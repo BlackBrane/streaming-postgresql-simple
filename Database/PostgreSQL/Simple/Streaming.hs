@@ -37,6 +37,7 @@ module Database.PostgreSQL.Simple.Streaming
 import Control.Exception.Safe
        (Exception, MonadCatch, MonadMask, SomeException(..), catch, throwM, mask)
 import Control.Monad (unless)
+import Control.Monad.Fail (MonadFail)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (runReaderT)
@@ -250,11 +251,11 @@ streamResult conn parser result = do
 --   a syntax or type error,  or an incorrect table or column name.
 
 stream
-  :: (FromRow row, ToRow params, MonadMask m, MonadResource m)
+  :: (FromRow row, ToRow params, MonadMask m, MonadResource m, MonadFail m)
   => Connection -> Query -> params -> Stream (Of row) m ()
 stream = streamWith fromRow
 
-streamWithOptions :: (FromRow row,ToRow params,MonadResource m,MonadMask m)
+streamWithOptions :: (FromRow row,ToRow params,MonadResource m,MonadMask m, MonadFail m)
                   => FoldOptions
                   -> Connection
                   -> Query
@@ -264,13 +265,13 @@ streamWithOptions options = streamWithOptionsAndParser options fromRow
 
 -- | A version of 'stream' taking a parser as an argument.
 streamWith
-  :: (ToRow params, MonadMask m, MonadResource m)
+  :: (ToRow params, MonadMask m, MonadResource m, MonadFail m)
   => RowParser row -> Connection -> Query -> params -> Stream (Of row) m ()
 streamWith = streamWithOptionsAndParser defaultFoldOptions
 
 -- | A version of 'streamWithOptions' taking a parser as an argument.
 streamWithOptionsAndParser
-  :: (ToRow params, MonadMask m, MonadResource m)
+  :: (ToRow params, MonadMask m, MonadResource m, MonadFail m)
   => FoldOptions
   -> RowParser row
   -> Connection
@@ -284,11 +285,11 @@ streamWithOptionsAndParser options parser conn template qs = do
 
 -- | A version of 'stream' that does not perform query substitution.
 stream_
-  :: (FromRow row, MonadMask m, MonadResource m)
+  :: (FromRow row, MonadMask m, MonadResource m, MonadFail m)
   => Connection -> Query -> Stream (Of row) m ()
 stream_ = streamWith_ fromRow
 
-streamWithOptions_ :: (FromRow row,MonadResource m,MonadMask m)
+streamWithOptions_ :: (FromRow row,MonadResource m,MonadMask m, MonadFail m)
                    => FoldOptions
                    -> Connection
                    -> Query
@@ -297,19 +298,19 @@ streamWithOptions_ options = streamWithOptionsAndParser_ options fromRow
 
 -- | A version of 'stream_' taking a parser as an argument.
 streamWith_
-  :: (MonadMask m, MonadResource m)
+  :: (MonadMask m, MonadResource m, MonadFail m)
   => RowParser row -> Connection -> Query -> Stream (Of row) m ()
 streamWith_ parser conn template = doFold defaultFoldOptions parser conn template
 
 -- | A version of 'streamWithOptions_' taking a parser as an argument.
 streamWithOptionsAndParser_
-  :: (MonadMask m, MonadResource m)
+  :: (MonadMask m, MonadResource m, MonadFail m)
   => FoldOptions -> RowParser row -> Connection -> Query -> Stream (Of row) m ()
 streamWithOptionsAndParser_ options parser conn template =
   doFold options parser conn template
 
 doFold :: forall row m.
-          (MonadIO m,MonadMask m,MonadResource m)
+          (MonadIO m,MonadMask m,MonadResource m, MonadFail m)
        => FoldOptions
        -> RowParser row
        -> Connection
@@ -451,7 +452,7 @@ toByteString x = LBS.toStrict (toLazyByteString x)
 data Restore m = Unmasked | Masked (forall x . m x -> m x)
 
 liftMask
-    :: forall a m r . (MonadIO m)
+    :: forall a m r . (MonadIO m, MonadFail m)
     => (forall s . ((forall x . m x -> m x) -> m s) -> m s)
     -> ((forall x . Stream (Of a) m x -> Stream (Of a) m x)
         -> Stream (Of a) m r)
@@ -485,7 +486,7 @@ liftMask maskVariant k = do
     loop $ k unmask
 
 bracket
-  :: (MonadIO m, MonadMask m, MonadResource m)
+  :: (MonadIO m, MonadMask m, MonadResource m, MonadFail m)
   => m a -> (a -> IO ()) -> (a -> Stream (Of b) m c) -> Stream (Of b) m c
 bracket before after action = liftMask mask $ \restore -> do
     h <- lift before
